@@ -3,7 +3,7 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
-const WIDGET = path.join(__dirname, '..', 'gestion-acces.html');
+const WIDGET = path.join(__dirname, '..', 'gestion-acces', 'index.html');
 const MOCK = fs.readFileSync(path.join(__dirname, 'mock-grist.js'), 'utf8');
 const OUT = path.join(__dirname, 'resultats');
 fs.mkdirSync(OUT, { recursive: true });
@@ -21,7 +21,7 @@ function fixture(opts = {}) {
     cid += 1; cols.push({ id: cid, parentId: tid, colId: 'manualSort', type: 'ManualSortPos', isFormula: false, formula: '' });
   };
   T('Reference', ['Academie', 'Niveau']);
-  T('Utilisateurs_Academies', ['Email', 'Nom', ['Academie', 'Ref:Reference'], 'Role']);
+  T('Utilisateurs', ['Email', 'Nom', ['Academie', 'Ref:Reference'], 'Role']);
   T('BD_Stages2', ['Reference_de_stage', ['Academie_de_formation', opts.academieTexte ? 'Text' : 'Ref:Reference'], 'UUID', 'Satisfaction_UUID', 'Formulaire_URL', 'Satisfaction_URL', 'Statut_du_stage']);
   T('Candidats_du_stage', [['Stage', 'Ref:BD_Stages2'], 'Nom', 'Prenom', 'Mel', 'UUID_personnel', 'Sous_groupe', 'Lien_personnel', ['Stage_UUID', 'Text', '$Stage.UUID'], ['gristHelper_Display', 'Any', '$Stage.Reference_de_stage']]);
   T('Intervenants_du_stage', [['Stage', 'Ref:BD_Stages2'], 'Nom', 'Type', 'Sous_groupe', ['Academie_du_stage', 'Ref:Reference', '$Stage.Academie_de_formation']]);
@@ -52,7 +52,7 @@ function fixture(opts = {}) {
     ],
     _grist_ACLRules: [
       { id: 1, resource: 1, aclFormula: '', permissionsText: '', rulePos: 1e9, memo: '', userAttributes: '' },
-      { id: 2, resource: 2, aclFormula: '', permissionsText: '', rulePos: 1, memo: '', userAttributes: ua({ name: 'Profil_acad', tableId: 'Utilisateurs_Academies', charId: 'Email', lookupColId: 'Email' }) },
+      { id: 2, resource: 2, aclFormula: '', permissionsText: '', rulePos: 1, memo: '', userAttributes: ua({ name: 'Profil_acad', tableId: 'Utilisateurs', charId: 'Email', lookupColId: 'Email' }) },
       { id: 3, resource: 2, aclFormula: '', permissionsText: '', rulePos: 2, memo: '', userAttributes: ua({ name: 'Stagiaire', tableId: 'Candidats_du_stage', charId: 'LinkKey.CandidatUUID', lookupColId: 'UUID_personnel' }) },
       { id: 4, resource: 3, aclFormula: 'user.Access in [OWNER]', permissionsText: '+CRUD', rulePos: 3, memo: '', userAttributes: '' },
       { id: 5, resource: 3, aclFormula: 'user.LinkKey.UUID == newRec.Stage_UUID', permissionsText: '+C', rulePos: 4, memo: '', userAttributes: '' },
@@ -63,7 +63,7 @@ function fixture(opts = {}) {
       { id: 10, resource: 6, aclFormula: 'user.Stagiaire.id != rec.id', permissionsText: '-R', rulePos: 9, memo: '', userAttributes: '' },
     ],
     Reference: [{ id: 1, Academie: 'Lyon' }, { id: 2, Academie: 'Paris' }],
-    Utilisateurs_Academies: [{ id: 1, Email: 'nat@x.fr', Role: 'National', Academie: 2 }, { id: 2, Email: 'lyon@x.fr', Role: 'Academie', Academie: 1 }],
+    Utilisateurs: [{ id: 1, Email: 'nat@x.fr', Role: 'National', Academie: 2 }, { id: 2, Email: 'lyon@x.fr', Role: 'Academie', Academie: 1 }],
     BD_Stages2: [{ id: 1, Academie_de_formation: 1, UUID: 'u1', Satisfaction_UUID: 's1',
       Formulaire_URL: 'https://docs.getgrist.com/abc/Suivi/p/3?UUID_=u1', Satisfaction_URL: `https://docs.getgrist.com/abc/Suivi/p/6?${sat}=s1` }],
     Candidats_du_stage: [{ id: 1, Stage: 1, Nom: 'A', UUID_personnel: 'k1', Lien_personnel: 'https://docs.getgrist.com/abc/Suivi/p/5?CandidatUUID_=k1' }],

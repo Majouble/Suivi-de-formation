@@ -1,0 +1,269 @@
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface-alt: #f3f3fb;
+    --text: #1e1e28;
+    --text-muted: #5d5d6b;
+    --border: #dbdbe4;
+    --accent: #000091;
+    --accent-contrast: #ffffff;
+    --ok: #18753c;
+    --ok-bg: #e8f5ea;
+    --warn: #8d5a00;
+    --warn-bg: #fef2e1;
+    --danger: #b71c1c;
+    --danger-bg: #fde8e8;
+    --info-bg: #e5e5f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171f; --surface: #1d1d27; --surface-alt: #24242f;
+      --text: #f1f1f4; --text-muted: #a3a3b2; --border: #34343f;
+      --accent: #8b8bff; --accent-contrast: #0d0d14;
+      --ok: #4fd07a; --ok-bg: #123321; --warn: #f0b429; --warn-bg: #3a2a05;
+      --danger: #ff6b6b; --danger-bg: #3a1414; --info-bg: #24243a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: 'Work Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.55; }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  a { color: var(--accent); }
+  .content { padding: 32px 20px 80px; max-width: 780px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  h2 { font-size: 16px; margin: 30px 0 8px; padding-top: 14px; border-top: 1px solid var(--border); }
+  h2 .num { color: var(--text-muted); font-weight: 400; margin-right: 6px; }
+  h3 { font-size: 13.5px; margin: 16px 0 6px; }
+  p { margin: 0 0 10px; }
+  ul { margin: 0 0 10px; padding-left: 20px; }
+  li { margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: var(--text-muted); margin: 0 0 4px; }
+  .updated { font-size: 12px; color: var(--text-muted); margin: 0 0 24px; }
+  .card { background: var(--surface); border: 1px solid var(--border); padding: 20px 22px; margin-bottom: 4px; }
+  .callout { border: 1.5px solid var(--accent); background: var(--info-bg); padding: 14px 16px; font-size: 13px; margin: 10px 0 18px; }
+  .placeholder { background: var(--warn-bg); border: 1px dashed var(--warn); color: var(--warn); padding: 1px 6px; font-size: 12.5px; font-weight: 600; white-space: normal; }
+  .placeholder-block { background: var(--warn-bg); border: 1.5px dashed var(--warn); padding: 10px 14px; margin: 8px 0; font-size: 12.5px; }
+  .placeholder-block strong { color: var(--warn); }
+  .sensible { border: 1.5px solid var(--danger); background: var(--danger-bg); padding: 12px 16px; margin: 10px 0; font-size: 13px; }
+  .sensible strong { color: var(--danger); }
+  table.data-cats { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 8px 0 16px; }
+  table.data-cats th, table.data-cats td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; vertical-align: top; }
+  table.data-cats th { background: var(--surface-alt); font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+  .toc { font-size: 13px; }
+  .toc ol { padding-left: 20px; margin: 0; }
+  .toc li { margin-bottom: 3px; }
+  .toc a { text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .field-help { font-size: 11.5px; color: var(--text-muted); }
+  .back-top { display: inline-block; margin-top: 8px; font-size: 12px; }
+  @media print {
+    .toc, .back-top { display: none; }
+  }
+</style>
+
+<div class="content">
+  <header>
+    <p class="subtitle">Dispositif de suivi de formation FPGC</p>
+    <h1 id="haut">Mention d'information relative aux données personnelles</h1>
+    <p class="updated">Dernière mise à jour : <span class="placeholder">À COMPLÉTER — date de publication</span></p>
+  </header>
+
+  <div class="callout">
+    Cette page décrit, conformément au Règlement général sur la protection des données (RGPD) et à la
+    loi « Informatique et Libertés », comment vos données à caractère personnel sont utilisées dans le
+    cadre du dispositif de suivi des stages de formation professionnelle FPGC (recrutement, gestion
+    administrative du stage, annuaire des personnels formés, enquête de satisfaction).
+  </div>
+
+  <div class="placeholder-block">
+    <strong>À l'attention de la personne qui complète cette page avant publication</strong> — les
+    zones surlignées comme celle-ci, ainsi que les mentions <span class="placeholder">À COMPLÉTER</span>,
+    doivent être validées ou renseignées avec le délégué à la protection des données (DPO) de
+    l'académie/du rectorat avant toute diffusion publique de ce lien. Voir aussi
+    <span class="mono">claude/checklist-mise-en-production.md</span> (section dédiée à cette page) pour
+    le suivi de ces points.
+  </div>
+
+  <nav class="toc" aria-label="Sommaire">
+    <ol>
+      <li><a href="#responsable">Qui est responsable du traitement de vos données ?</a></li>
+      <li><a href="#donnees">Quelles données sont collectées, et pourquoi ?</a></li>
+      <li><a href="#base-legale">Sur quelle base légale ?</a></li>
+      <li><a href="#destinataires">Qui a accès à vos données ?</a></li>
+      <li><a href="#duree">Combien de temps vos données sont-elles conservées ?</a></li>
+      <li><a href="#droits">Quels sont vos droits, et comment les exercer ?</a></li>
+      <li><a href="#reclamation">Comment adresser une réclamation ?</a></li>
+      <li><a href="#securite">Comment vos données sont-elles sécurisées ?</a></li>
+    </ol>
+  </nav>
+
+  <h2 id="responsable"><span class="num">1.</span>Qui est responsable du traitement de vos données ?</h2>
+  <p>
+    Le responsable du traitement est
+    <span class="placeholder">À COMPLÉTER — dénomination officielle du rectorat/académie ou de la
+    direction organisatrice, adresse postale</span>.
+  </p>
+  <p>
+    Pour toute question relative à la protection de vos données, vous pouvez contacter le délégué à la
+    protection des données (DPO) :
+    <span class="placeholder">À COMPLÉTER — nom/fonction du DPO, adresse mél et/ou postale de
+    contact</span>.
+  </p>
+
+  <h2 id="donnees"><span class="num">2.</span>Quelles données sont collectées, et pourquoi ?</h2>
+  <p>Le dispositif comporte trois collectes de nature différente, décrites séparément ci-dessous.</p>
+
+  <h3>2.1 — Candidature à un stage (formulaire de recrutement)</h3>
+  <p>
+    Si vous candidatez à un stage via le formulaire public de recrutement, les données suivantes sont
+    collectées, dans le seul but d'organiser le stage, de vérifier votre éligibilité et d'assurer son
+    suivi administratif et logistique :
+  </p>
+  <table class="data-cats">
+    <thead><tr><th>Catégorie</th><th>Données</th><th>Finalité</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Identité professionnelle</td>
+        <td>Nom, prénom, adresse mél, académie et établissement d'affectation, fonction, grade,
+          discipline d'exercice, date et lieu de naissance, numéro de téléphone portable</td>
+        <td>Identification du candidat, vérification de son éligibilité auprès de l'annuaire,
+          contact pendant l'organisation du stage</td>
+      </tr>
+      <tr>
+        <td>Logistique du séjour</td>
+        <td>Mode de transport, gare d'arrivée ou véhicule (marque, modèle, couleur, immatriculation),
+          dates et heures d'arrivée/départ, besoin d'hébergement, régime alimentaire particulier ou
+          allergies</td>
+        <td>Organisation de l'accueil, de l'hébergement et de la restauration pendant le stage</td>
+      </tr>
+      <tr>
+        <td>Droits</td>
+        <td>Accord ou refus sur le droit à l'image</td>
+        <td>Respect de votre choix avant toute prise de vue éventuelle pendant le stage</td>
+      </tr>
+      <tr>
+        <td>Habillement</td>
+        <td>Tailles de treillis (haut, pantalon)</td>
+        <td>Préparation des effets fournis pendant le stage, lorsque celui-ci le prévoit</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>2.2 — Personnels formés (Annuaire national FPGC)</h3>
+  <p>
+    Une fois un stage validé et clôturé, les stagiaires ayant obtenu la mention « Formé » sont inscrits
+    dans un annuaire national des personnels formés au dispositif FPGC. Cet annuaire conserve, de
+    façon plus durable que les données de candidature : nom, prénom, adresse mél, académie et
+    établissement d'affectation, grade, discipline d'exercice, fonction exercée, ainsi que la liste des
+    stages suivis (références). Cette finalité est le suivi, sur la durée, du parcours de formation de
+    chaque agent formé au sein du dispositif, et la vérification de son éligibilité à un futur stage
+    (ex. prérequis de parcours).
+  </p>
+
+  <h3>2.3 — Enquête de satisfaction</h3>
+  <p>
+    L'enquête de satisfaction proposée à l'issue d'un stage est conçue pour être
+    <strong>entièrement anonyme</strong> : elle ne collecte aucune donnée d'identité (ni nom, ni
+    adresse mél, ni aucun identifiant permettant de relier une réponse à une personne ou à sa
+    candidature). Les réponses recueillies (notes, appréciations, commentaires libres) ne sont donc pas
+    des données à caractère personnel au sens du RGPD.
+  </p>
+
+  <h2 id="base-legale"><span class="num">3.</span>Sur quelle base légale ?</h2>
+  <p>
+    Ce traitement est fondé sur l'exécution d'une mission d'intérêt public dont est investi le
+    responsable de traitement (article 6.1.e du RGPD), à savoir l'organisation de la formation
+    professionnelle continue des personnels concernés par le dispositif FPGC.
+    <span class="placeholder">À COMPLÉTER — cette qualification est à confirmer par le DPO </span>
+  </p>
+
+  <h2 id="destinataires"><span class="num">4.</span>Qui a accès à vos données ?</h2>
+  <p>Vos données sont accessibles, chacune dans la limite de ce qui lui est nécessaire :</p>
+  <ul>
+    <li>aux personnels chargés de l'organisation du stage auquel vous candidatez ou participez, au sein
+      de l'académie organisatrice ;</li>
+    <li>le cas échéant, à la direction nationale du dispositif, pour le pilotage et le suivi statistique
+      d'ensemble (données agrégées ou, pour l'annuaire, données nominatives limitées à ce qui est
+      nécessaire au suivi du parcours de formation) ;</li>
+    <li><span class="placeholder">À COMPLÉTER — organismes partenaires éventuels impliqués dans
+      l'organisation logistique du stage (hébergement, restauration), le cas échéant, et nature exacte
+      des données qui leur sont transmises</span>.</li>
+  </ul>
+  <p>
+    Vos données ne sont ni cédées ni vendues à des tiers à des fins commerciales, et ne font l'objet
+    d'aucun transfert hors de l'Union européenne.
+  </p>
+
+  <h2 id="duree"><span class="num">5.</span>Combien de temps vos données sont-elles conservées ?</h2>
+  <p>
+    Conformément au principe de limitation de la conservation (article 5.1.e du RGPD), vos données ne
+    sont conservées que pour la durée nécessaire aux finalités décrites ci-dessus. Les durées exactes
+    sont en cours de validation avec le délégué à la protection des données ; à titre indicatif, les
+    catégories suivantes s'appliquent :
+  </p>
+  <ul>
+    <li><strong>Candidature non retenue</strong> — conservée le temps du processus de recrutement du
+      stage concerné, puis supprimée. <span class="placeholder">Durée exacte à
+      compléter.</span></li>
+    <li><strong>Candidature retenue (stagiaire)</strong> — conservée le temps du stage et de sa clôture
+      administrative. <span class="placeholder">Durée exacte à compléter.</span></li>
+    <li><strong>Annuaire national des personnels formés</strong> — conservée pour la durée du suivi du
+      parcours de formation de l'agent au sein du dispositif (utile, par construction, pour vérifier
+      l'éligibilité à un futur stage). <span class="placeholder">Durée exacte, et modalités de mise à
+      jour ou de suppression en cas de changement de situation (mutation, départ du dispositif), à
+      compléter.</span></li>
+    <li><strong>Réponses à l'enquête de satisfaction</strong> — anonymes dès la collecte (voir 2.3) :
+      conservées à des fins d'amélioration continue du dispositif, sans limitation liée à
+      l'identification d'une personne, puisqu'aucune personne n'y est identifiable.</li>
+  </ul>
+
+  <h2 id="droits"><span class="num">6.</span>Quels sont vos droits, et comment les exercer ?</h2>
+  <p>Concernant vos données à caractère personnel, vous disposez des droits suivants :</p>
+  <ul>
+    <li><strong>Droit d'accès</strong> — obtenir la confirmation que vos données sont traitées, et en
+      obtenir une copie ;</li>
+    <li><strong>Droit de rectification</strong> — faire corriger des données inexactes ou incomplètes ;</li>
+    <li><strong>Droit d'effacement</strong> — demander la suppression de vos données, dans les limites
+      prévues par la réglementation (notamment lorsque leur conservation reste nécessaire à
+      l'exécution de la mission d'intérêt public mentionnée au point 3) ;</li>
+    <li><strong>Droit à la limitation du traitement</strong>, dans certains cas ;</li>
+    <li><strong>Droit d'opposition</strong>, pour des motifs tenant à votre situation particulière ;</li>
+    <li><strong>Droit à la portabilité</strong>, lorsqu'il s'applique.</li>
+  </ul>
+  <p>
+    Pour exercer l'un de ces droits, vous pouvez contacter :
+    <span class="placeholder">À COMPLÉTER — adresse mél ou postale de contact pour l'exercice des
+    droits (peut être la même que le contact DPO indiqué au point 1)</span>. Une réponse vous sera
+    apportée dans un délai d'un mois, éventuellement prolongé de deux mois pour les demandes complexes.
+  </p>
+
+  <h2 id="reclamation"><span class="num">7.</span>Comment adresser une réclamation ?</h2>
+  <p>
+    Si vous estimez, après nous avoir contactés, que vos droits ne sont pas respectés, vous pouvez
+    introduire une réclamation auprès de la Commission nationale de l'informatique et des libertés
+    (CNIL) : <a href="https://www.cnil.fr/fr/plaintes" target="_blank" rel="noopener">cnil.fr/fr/plaintes</a>.
+  </p>
+
+  <h2 id="securite"><span class="num">8.</span>Comment vos données sont-elles sécurisées ?</h2>
+  <p>
+    Vos données sont hébergées et traitées au sein d'un espace de travail numérique dont l'accès est
+    limité, par des règles de contrôle d'accès, aux personnels habilités à en connaître dans le cadre de
+    leurs fonctions (organisation académique ou nationale du dispositif). Des mesures techniques et
+    organisationnelles sont mises en œuvre pour assurer leur confidentialité et leur intégrité.
+    <span class="placeholder">À COMPLÉTER si une description plus précise de l'hébergement est
+    souhaitée (nom de la plateforme, localisation).</span>
+  </p>
+
+ 
+  <p class="field-help">
+    <a class="back-top" href="#haut">↑ Haut de page</a>
+  </p>
+</div>
+<script>
+  // Page purement statique (aucune table Grist lue) : grist.ready() sans requiredAccess évite
+  // simplement l'avertissement « widget non prêt » affiché par Grist tant qu'il n'est pas appelé.
+  if (window.grist && typeof grist.ready === 'function') { grist.ready(); }
+</script>
+<script src="../commun/version.js"></script>
