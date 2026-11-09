@@ -10,7 +10,7 @@
  * de publier une version alpha, beta ou dev).
  */
 { // bloc : VERSION ne devient pas une variable globale du widget
-const VERSION = "1.0.1-alpha.3 (09/11/2026)";
+const VERSION = "1.0.1-alpha.4 (09/11/2026)";
 
 window.VERSION_FPGC = VERSION;
 console.info(`Widgets FPGC — version ${VERSION}`);

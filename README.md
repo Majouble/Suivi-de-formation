@@ -35,6 +35,8 @@ gestion-acces/             application des règles d'accès (voir plus bas)
 gestion-stage-fpgc/
 pilotage-academique/
 commun/version.js          numéro de version, chargé par tous les widgets
+commun/normalisation.js    mise en forme des saisies (NOM, Prénom, mél, téléphone…) et détection des doublons,
+                           chargé par le formulaire de recrutement et la gestion des stages
 prod/                      copie figée pour la production — ne pas modifier à la main
 outils/publier-prod.sh     fige le développement dans prod/
 outils/revenir-prod.sh     remet prod/ dans l'état d'une version publiée
@@ -43,7 +45,7 @@ tests/                     faux Grist et scénarios du widget de gestion des acc
 
 Origine : version 1.0.0 = code extrait du Custom Widget Builder du document « Suivi FPGC - v17 » le 09/11/2026, à l'identique. Seul ajout : le chargement de `commun/version.js`. Ne sont pas dans le dépôt : la page « Parcours stagiaire » (modèle vide du builder), la page « Pilotage et gestion des stages » (widget Markdown natif) et le pilotage national (absent du v17).
 
-Pour revenir au builder, collez le contenu de `index.html` dans l'onglet HTML et celui du `.js` dans l'onglet JavaScript. Les deux balises `<script src=…>` relatives sont alors simplement ignorées.
+Pour revenir au builder, collez le contenu de `index.html` dans l'onglet HTML et celui du `.js` dans l'onglet JavaScript. Les balises `<script src=…>` relatives sont alors ignorées : le widget fonctionne, mais **sans les modules de `commun/`**. Il n'y a alors ni numéro de version, ni mise en forme des saisies, ni détection des doublons de candidatures.
 
 ## Mise en production
 
@@ -64,6 +66,9 @@ Commencez toujours par une **copie** du document de production. Grist ne communi
 ### Tests
 
 ```bash
+node tests/normalisation.test.js             # règles de mise en forme et de doublons
+node tests/recrutement-doublons.test.js tests/resultats/document.json   # formulaire et gestion, faux Grist
+
 npm install playwright                       # si nécessaire
 node tests/run-test.js                       # scénarios sur un faux Grist, captures dans tests/resultats/
 python3 tests/check_formulas.py tests/resultats/formules.json

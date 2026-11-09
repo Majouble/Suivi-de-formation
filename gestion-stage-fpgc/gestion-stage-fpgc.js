@@ -1520,8 +1520,26 @@ function bindConfigSatisfaction(stage) {
   });
 }
 
+// Doublons de candidatures (09/11/2026) : même adresse mél, ou même nom et prénom, sans tenir compte
+// de la casse ni des accents — règles de commun/normalisation.js. Sans ce module (widget collé dans
+// le Custom Widget Builder), aucun doublon n'est signalé.
+function doublonsDuStage(candidates) {
+  return window.NormalisationFPGC ? window.NormalisationFPGC.doublonsCandidatures(candidates) : new Map();
+}
+
+function badgeDoublon(c, doublons, candidates) {
+  const d = doublons.get(c.id);
+  if (!d) return '';
+  const noms = d.autres.map((id) => {
+    const autre = candidates.find((x) => x.id === id);
+    return autre ? `${autre.Nom || ''} ${autre.Prenom || ''} (${autre.Mel || 'sans mél'}, ${autre.Statut || 'sans statut'})`.trim() : '';
+  }).filter(Boolean).join(' ; ');
+  return ` <span class="badge badge-warn" title="${escapeHtml(`Doublon possible — ${d.motif} que : ${noms}`)}">Doublon possible</span>`;
+}
+
 function renderStagiaires(stage) {
   const candidates = candidatesForStage(stage.id);
+  const doublons = doublonsDuStage(candidates);
   const counts = { Candidat: 0, "Liste d'attente": 0, Stagiaire: 0, 'Formé': 0, 'Non retenu': 0 };
   candidates.forEach((c) => { if (c.Statut in counts) counts[c.Statut]++; });
   const effectif = stage.Effectif_theorique || 0;
@@ -1538,7 +1556,7 @@ function renderStagiaires(stage) {
       ? `<span class="badge ${STATUT_BADGE_CANDIDAT['Formé']}">Formé</span>`
       : `<select class="cand-statut" data-cand-id="${c.id}">${statutOptions.map((s) => `<option value="${s}" ${c.Statut === s ? 'selected' : ''}>${s}</option>`).join('')}</select>`;
     return `<tr>
-      <td>${escapeHtml(c.Nom || '')} ${escapeHtml(c.Prenom || '')}</td>
+      <td>${escapeHtml(c.Nom || '')} ${escapeHtml(c.Prenom || '')}${badgeDoublon(c, doublons, candidates)}</td>
       <td>${escapeHtml(c.Mel || '')}</td>
       <td>${statutCell}</td>
       <td>
@@ -1553,7 +1571,8 @@ function renderStagiaires(stage) {
   return `
     <div class="card">
       <h3>Stagiaires</h3>
-      <p class="section-sub">${counts.Stagiaire + counts['Formé']} validé(s) / ${effectif || '—'} places · ${counts.Candidat} en attente de décision · ${counts["Liste d'attente"]} en liste d'attente${counts['Formé'] ? ` · ${counts['Formé']} formé(s)` : ''}</p>
+      <p class="section-sub">${counts.Stagiaire + counts['Formé']} validé(s) / ${effectif || '—'} places · ${counts.Candidat} en attente de décision · ${counts["Liste d'attente"]} en liste d'attente${counts['Formé'] ? ` · ${counts['Formé']} formé(s)` : ''}${doublons.size ? ` · <strong style="color:var(--warn);">${doublons.size} candidature(s) en doublon possible</strong>` : ''}</p>
+      ${doublons.size ? '<p class="field-help">« Doublon possible » : même adresse mél, ou même nom et prénom, qu\'une autre candidature de ce stage (survolez le badge pour voir laquelle). Gardez-en une et passez les autres en « Non retenu ». Un même nom et prénom avec deux adresses différentes peut aussi être un homonyme.</p>' : ''}
       <p class="field-help">« Lien perso » retrouve ou (re)génère le lien personnel d'un candidat vers l'espace stagiaire (planning + émargement) — utile s'il l'a perdu, ou pour les candidatures déposées avant que l'URL de l'espace stagiaire soit configurée. Le statut « Formé » ne se choisit plus ici : il s'obtient dans l'onglet « Émargement & formation », à partir de l'assiduité constatée.</p>
       <table class="data-table">
         <thead><tr><th>Candidat</th><th>Email</th><th>Statut</th><th>Actions</th></tr></thead>
@@ -1589,7 +1608,26 @@ function renderStagiaires(stage) {
   `;
 }
 
-async function addCandidatesBulk(stage, entries) {
+async function addCandidatesBulk(stage, entriesBrutes) {
+  // Mise en forme (NOM, Prénom, mél en minuscules) et lignes déjà présentes : une adresse mél déjà
+  // connue pour ce stage, ou répétée dans la liste collée, n'est pas ajoutée une seconde fois.
+  // Un même nom et prénom avec une autre adresse est ajouté (homonyme possible) et sera signalé
+  // « Doublon possible » dans la liste.
+  const N = window.NormalisationFPGC;
+  const melsConnus = new Set(N ? candidatesForStage(stage.id).map((c) => N.cleMel(c.Mel)).filter(Boolean) : []);
+  const ignorees = [];
+  const entries = [];
+  for (const brute of entriesBrutes) {
+    const e = N ? N.normaliserChamps(brute) : brute;
+    const cle = N ? N.cleMel(e.Mel) : '';
+    if (cle && melsConnus.has(cle)) { ignorees.push(e.Mel); continue; }
+    if (cle) melsConnus.add(cle);
+    entries.push(e);
+  }
+  if (!entries.length) {
+    showFlash(`Aucune candidature ajoutée : ${ignorees.length > 1 ? 'ces adresses mél sont' : 'cette adresse mél est'} déjà enregistrée(s) pour ce stage (${ignorees.join(', ')}).`, 'error');
+    return;
+  }
   const existing = candidatesForStage(stage.id).filter((c) => c.Statut === 'Candidat' || c.Statut === 'Stagiaire' || c.Statut === 'Formé').length;
   const effectif = stage.Effectif_theorique || Infinity;
   const withStatut = entries.map((e, i) => ({
@@ -1599,7 +1637,8 @@ async function addCandidatesBulk(stage, entries) {
   }));
   try {
     await addRecords('Candidats_du_stage', withStatut);
-    showFlash(withStatut.length + ' candidature(s) ajoutée(s).', 'ok');
+    showFlash(withStatut.length + ' candidature(s) ajoutée(s).'
+      + (ignorees.length ? ` ${ignorees.length} ligne(s) ignorée(s), adresse mél déjà enregistrée pour ce stage : ${ignorees.join(', ')}.` : ''), 'ok');
     render();
   } catch (err) { flashError('Erreur', err); }
 }

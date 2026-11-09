@@ -872,12 +872,95 @@ function bindEtablissementAutocomplete() {
   });
 }
 
+/* ---------------------------------------------------------------------- */
+/* Mise en forme des saisies et candidature déjà envoyée (09/11/2026)      */
+/*                                                                         */
+/* Mise en forme : règles de commun/normalisation.js (NOM en majuscules,   */
+/* Prénom, mél en minuscules, téléphone « 06 12 34 56 78 »…), appliquées à */
+/* la sortie de chaque champ, pour que la personne voie le résultat, puis  */
+/* une dernière fois à l'envoi. Si le module commun n'est pas chargé       */
+/* (widget collé dans le Custom Widget Builder), les saisies partent       */
+/* telles quelles : le formulaire continue de fonctionner.                 */
+/*                                                                         */
+/* Doublons : ce formulaire ne peut lire aucune candidature (règles        */
+/* d'accès), il ne peut donc pas comparer avec celles déjà reçues. La      */
+/* détection complète se fait dans le widget de gestion. Ici, on prévient  */
+/* seulement la personne qui a déjà envoyé une candidature à ce stage      */
+/* depuis ce navigateur. Seules des empreintes SHA-256 (mél, nom+prénom)   */
+/* sont gardées dans le navigateur, jamais les données en clair.           */
+/* ---------------------------------------------------------------------- */
+
+const Normalisation = window.NormalisationFPGC || null;
+const CLE_CANDIDATURES_ENVOYEES = 'fpgc_candidatures_envoyees';
+
+function miseEnForme(colonne, valeur) {
+  return Normalisation ? Normalisation.normaliserValeur(colonne, valeur) : valeur;
+}
+
+// Champ de saisie → colonne qu'il alimente (pour la mise en forme à la sortie du champ).
+function colonneDuChamp(el) {
+  if (el.id === 'pf-nom') return 'Nom';
+  if (el.id === 'pf-prenom') return 'Prenom';
+  if (el.id === 'pf-mel') return 'Mel';
+  const q = QUESTIONS_RECRUTEMENT.find((x) => x.id === el.getAttribute('data-q-id'));
+  return q ? q.colonneCible : null;
+}
+
+function bindMiseEnForme() {
+  if (!Normalisation) return;
+  document.querySelectorAll('#pf-nom, #pf-prenom, #pf-mel, input[type="text"][data-q-id]').forEach((el) => {
+    el.addEventListener('blur', () => {
+      const colonne = colonneDuChamp(el);
+      if (colonne && el.value) el.value = miseEnForme(colonne, el.value);
+    });
+  });
+}
+
+async function empreinte(texte) {
+  const octets = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(texte));
+  return Array.from(new Uint8Array(octets)).map((o) => o.toString(16).padStart(2, '0')).join('');
+}
+
+// Empreintes de la candidature pour ce stage, ou null si le navigateur ne permet pas de les calculer.
+async function empreintesCandidature(stageId, champs) {
+  if (!Normalisation || !(window.crypto && crypto.subtle)) return null;
+  try {
+    const mel = Normalisation.cleMel(champs.Mel);
+    const identite = Normalisation.cleIdentite(champs.Nom, champs.Prenom);
+    return {
+      mel: mel ? await empreinte(`${stageId}|mel|${mel}`) : '',
+      identite: identite ? await empreinte(`${stageId}|identite|${identite}`) : '',
+    };
+  } catch (e) { return null; }
+}
+
+function candidaturesEnvoyees() {
+  try { return JSON.parse(localStorage.getItem(CLE_CANDIDATURES_ENVOYEES) || '[]') || []; } catch (e) { return []; }
+}
+
+// Candidature déjà envoyée depuis ce navigateur par la même personne (même mél, ou même nom et prénom).
+function envoiPrecedent(empreintes) {
+  if (!empreintes) return null;
+  return candidaturesEnvoyees().find((e) => (empreintes.mel && e.mel === empreintes.mel)
+    || (empreintes.identite && e.identite === empreintes.identite)) || null;
+}
+
+function memoriserEnvoi(empreintes) {
+  if (!empreintes) return;
+  try {
+    const liste = candidaturesEnvoyees().slice(-49); // 50 dernières candidatures au plus
+    liste.push({ ...empreintes, date: Date.now() });
+    localStorage.setItem(CLE_CANDIDATURES_ENVOYEES, JSON.stringify(liste));
+  } catch (e) { /* stockage indisponible : rien à mémoriser */ }
+}
+
 function bindFormulaire(stage) {
   document.querySelectorAll('[data-q-id]').forEach((el) => {
     el.addEventListener('change', updateDependentVisibility);
     el.addEventListener('input', updateDependentVisibility);
   });
   bindEtablissementAutocomplete();
+  bindMiseEnForme();
   updateDependentVisibility();
 
   document.getElementById('pf-submit').addEventListener('click', async () => {
@@ -886,6 +969,7 @@ function bindFormulaire(stage) {
     const prenom = document.getElementById('pf-prenom').value.trim();
     const mel = document.getElementById('pf-mel').value.trim();
     if (!nom || !prenom || !mel) { statusEl.textContent = 'Nom, prénom et adresse mél sont obligatoires.'; return; }
+    if (Normalisation && !Normalisation.melValide(mel)) { statusEl.textContent = "L'adresse mél ne semble pas valide (exemple : prenom.nom@ac-academie.fr)."; return; }
 
     const cfg = formulaireConfigForStage(stage.id);
     const masqueeSet = new Set(cfg.masquees);
@@ -943,6 +1027,26 @@ function bindFormulaire(stage) {
 
     if (manquantes.length) { statusEl.textContent = 'Merci de renseigner : ' + manquantes.join(', ') + '.'; return; }
 
+    // Mise en forme finale (y compris les champs non quittés au clavier avant l'envoi).
+    if (Normalisation) Object.assign(fields, Normalisation.normaliserChamps(fields));
+
+    // Candidature déjà envoyée à ce stage depuis ce navigateur : on demande confirmation une fois.
+    const submitBtn = document.getElementById('pf-submit');
+    const empreintes = await empreintesCandidature(stage.id, fields);
+    const precedent = envoiPrecedent(empreintes);
+    if (precedent && submitBtn.dataset.doublonConfirme !== '1') {
+      const date = new Date(precedent.date).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
+      statusEl.innerHTML = `<strong>Vous avez déjà envoyé une candidature à ce stage le ${escapeHtml(date)}.</strong> `
+        + 'Un nouvel envoi créerait une seconde candidature. Si vous souhaitez corriger une information, '
+        + "contactez plutôt l'organisation du stage. "
+        + '<button type="button" class="btn btn-small btn-secondary" id="pf-confirmer-doublon">Envoyer quand même</button>';
+      document.getElementById('pf-confirmer-doublon').addEventListener('click', () => {
+        submitBtn.dataset.doublonConfirme = '1';
+        submitBtn.click();
+      });
+      return;
+    }
+
     fields.Stage = stage.id;
     // FPGC-02 (70e échange) : Statut n'est plus fixé côté client. Il est désormais calculé par une
     // trigger formula Grist sur Candidats_du_stage ("New records" uniquement) :
@@ -965,11 +1069,11 @@ function bindFormulaire(stage) {
     const lienPersonnel = buildLienPersonnel(pageUrlEspaceStagiaire(), uuidPersonnel);
     if (lienPersonnel) fields.Lien_personnel = lienPersonnel;
 
-    const submitBtn = document.getElementById('pf-submit');
     submitBtn.disabled = true;
     statusEl.textContent = 'Envoi en cours…';
     try {
       await grist.docApi.applyUserActions([['AddRecord', 'Candidats_du_stage', null, fields]]);
+      memoriserEnvoi(empreintes);
       state.phase = 'envoye';
       state.lienPersonnel = lienPersonnel;
       state.uuidPersonnel = uuidPersonnel;
