@@ -21,7 +21,7 @@ function fixture(opts = {}) {
     cid += 1; cols.push({ id: cid, parentId: tid, colId: 'manualSort', type: 'ManualSortPos', isFormula: false, formula: '' });
   };
   T('Reference', ['Academie', 'Niveau']);
-  T('Utilisateurs', ['Email', 'Nom', ['Academie', 'Ref:Reference'], 'Role']);
+  T('Utilisateurs', ['Email', 'Nom', ['Academie', 'Ref:Reference']]);
   T('BD_Stages2', ['Reference_de_stage', ['Academie_de_formation', opts.academieTexte ? 'Text' : 'Ref:Reference'], 'UUID', 'Satisfaction_UUID', 'Formulaire_URL', 'Satisfaction_URL', 'Statut_du_stage']);
   T('Candidats_du_stage', [['Stage', 'Ref:BD_Stages2'], 'Nom', 'Prenom', 'Mel', 'UUID_personnel', 'Sous_groupe', 'Lien_personnel', ['Stage_UUID', 'Text', '$Stage.UUID'], ['gristHelper_Display', 'Any', '$Stage.Reference_de_stage']]);
   T('Intervenants_du_stage', [['Stage', 'Ref:BD_Stages2'], 'Nom', 'Type', 'Sous_groupe', ['Academie_du_stage', 'Ref:Reference', '$Stage.Academie_de_formation']]);
@@ -30,7 +30,7 @@ function fixture(opts = {}) {
   T('Administration_et_logistique', [['Reference_de_stage', 'Ref:BD_Stages2'], 'Hebergement']);
   T('Enquete_de_satisfaction', [['Stage', 'Ref:BD_Stages2'], 'Note_globale']);
   T('Satisfaction_modules', [['Enquete', 'Ref:Enquete_de_satisfaction'], 'Titre_module', 'Reponse']);
-  T('Annuaire_FPGC', ['Nom', 'Prenom', 'Mel']);
+  T('Annuaire_FPGC', ['Nom', 'Prenom', 'Mel', ['Academie_d_affectation', 'Ref:Reference']]);
   T('Modules_de_formation', ['Titre', 'Type']);
   T('Parametres_widget', ['Cle', 'Valeur']);
   T('Preferences_tableau_bord', [['Academie', 'Ref:Reference'], 'Disposition']);
@@ -62,8 +62,8 @@ function fixture(opts = {}) {
       { id: 9, resource: 5, aclFormula: 'user.Access != OWNER', permissionsText: '-R', rulePos: 8, memo: '', userAttributes: '' },
       { id: 10, resource: 6, aclFormula: 'user.Stagiaire.id != rec.id', permissionsText: '-R', rulePos: 9, memo: '', userAttributes: '' },
     ],
-    Reference: [{ id: 1, Academie: 'Lyon' }, { id: 2, Academie: 'Paris' }],
-    Utilisateurs: [{ id: 1, Email: 'nat@x.fr', Role: 'National', Academie: 2 }, { id: 2, Email: 'lyon@x.fr', Role: 'Academie', Academie: 1 }],
+    Reference: [{ id: 1, Academie: 'Lyon' }, { id: 2, Academie: 'Paris' }, { id: 3, Academie: 'National' }],
+    Utilisateurs: [{ id: 1, Email: 'nat@x.fr', Academie: 3 }, { id: 2, Email: 'lyon@x.fr', Academie: 1 }],
     BD_Stages2: [{ id: 1, Academie_de_formation: 1, UUID: 'u1', Satisfaction_UUID: 's1',
       Formulaire_URL: 'https://docs.getgrist.com/abc/Suivi/p/3?UUID_=u1', Satisfaction_URL: `https://docs.getgrist.com/abc/Suivi/p/6?${sat}=s1` }],
     Candidats_du_stage: [{ id: 1, Stage: 1, Nom: 'A', UUID_personnel: 'k1', Lien_personnel: 'https://docs.getgrist.com/abc/Suivi/p/5?CandidatUUID_=k1' }],

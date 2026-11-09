@@ -1338,7 +1338,10 @@ function bindConfigFormulaire(stage) {
       // au-dessus de QUESTIONS_RECRUTEMENT expliquant pourquoi grist.setOption ne convient pas ici.
       const nouvelleConfig = { ...state.options.formulaireConfig, [stage.id]: { masquees, optionnelles } };
       await saveParametreWidget('formulaireConfig', JSON.stringify(nouvelleConfig));
-      await saveParametreWidget('dechargeUrl', dechargeUrl);
+      // dechargeUrl est un réglage commun à toutes les académies : réservé aux propriétaires et au
+      // national par les règles d'accès. On ne l'écrit donc que s'il a réellement changé, pour qu'une
+      // académie puisse enregistrer la configuration de son formulaire sans y toucher.
+      if (dechargeUrl !== (state.options.dechargeUrl || '')) await saveParametreWidget('dechargeUrl', dechargeUrl);
       // 41e échange, tour suivant — baseUrlDocument/pageIdFormulairePublic/pageIdEspaceStagiaire ne
       // sont plus saisis depuis cette carte (voir renderConfigFormulaire) : on lit directement
       // state.options, déjà repeuplé au chargement du widget depuis Parametres_widget, table que

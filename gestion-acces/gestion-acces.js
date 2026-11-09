@@ -51,11 +51,15 @@ const COLONNES_CAMARADE_VISIBLES = ['Nom', 'Prenom', 'Sous_groupe', 'Stage'];
 const COLONNE_EMARGEMENT_MODIFIABLE = 'Present';
 
 // Table qui rattache une adresse de connexion à une académie (document v17 : « Utilisateurs »,
-// colonnes Email et Academie). La colonne de rôle est facultative : sans elle, il n'y a pas de
-// règle « Équipe nationale » et la vue nationale est réservée aux propriétaires du document.
+// colonnes Email et Academie). Un compte rattaché à l'académie « National » de la table Reference
+// a la vue nationale (tous les stages, toutes les académies) : décision du 09/11/2026.
 const TABLE_UTILISATEURS = 'Utilisateurs';
-const COLONNE_ROLE = 'Role';
-const VALEUR_ROLE_NATIONAL = 'National';
+const ACADEMIE_NATIONALE = 'National';
+
+// Réglages de Parametres_widget que le personnel académique peut modifier : la configuration des
+// formulaires de recrutement et d'enquête. Tous les autres réglages (adresses, numéros de page,
+// lien de décharge…) sont communs à toutes les académies : propriétaires et national uniquement.
+const PARAMETRES_ACADEMIQUES = ['formulaireConfig', 'satisfactionConfig'];
 
 const PARAM_SAUVEGARDE = 'aclSauvegarde';
 const PARAM_TABLES_ANNEXES = 'aclTablesAnnexes';
@@ -66,7 +70,9 @@ const PARAM_TABLES_ANNEXES = 'aclTablesAnnexes';
 
 const C = {
   owner: 'user.Access in [OWNER]',
-  national: `user.Profil.${COLONNE_ROLE} == "${VALEUR_ROLE_NATIONAL}"`,
+  // Colonne pont Utilisateurs.Est_national (voir COLONNES_PONT) : une condition ne peut pas lire
+  // le libellé de l'académie à travers la référence user.Profil.Academie.
+  national: 'user.Profil.Est_national',
   // Un User Attribute introuvable n'est PAS None dans Grist : c'est un enregistrement vide,
   // toujours « vrai ». Seul son .id (nul si introuvable) permet de tester sa présence.
   profil: 'user.Profil.id',
@@ -102,6 +108,8 @@ const USER_ATTRIBUTES = [
 // ---------------------------------------------------------------------------------------
 
 const COLONNES_PONT = [
+  { table: TABLE_UTILISATEURS, col: 'Est_national', type: 'Bool',
+    formula: `($Academie.Academie or "").strip().lower() == "${ACADEMIE_NATIONALE.toLowerCase()}"` },
   { table: 'Candidats_du_stage', col: 'Academie_du_stage', formula: '$Stage.Academie_de_formation', type: 'Ref:Reference' },
   { table: 'Candidats_du_stage', col: 'Stage_UUID', formula: '$Stage.UUID', type: 'Text' },
   { table: 'Intervenants_du_stage', col: 'Academie_du_stage', formula: '$Stage.Academie_de_formation', type: 'Ref:Reference' },
@@ -117,6 +125,7 @@ const COLONNES_PONT = [
 const COLONNES_REF_ACADEMIE = [
   { table: TABLE_UTILISATEURS, col: 'Academie' },
   { table: 'BD_Stages2', col: 'Academie_de_formation' },
+  { table: 'Annuaire_FPGC', col: 'Academie_d_affectation' },
   { table: 'Etablissements_education_nationale', col: 'Libelle_academie', optionnelle: true },
   { table: 'Cibles_fonction_overrides', col: 'Academie', optionnelle: true },
   { table: 'Preferences_tableau_bord', col: 'Academie', optionnelle: true },
@@ -133,8 +142,7 @@ const COLONNES_REF_ACADEMIE = [
 // ---------------------------------------------------------------------------------------
 
 function regleOwner() { return { label: 'Propriétaires du document', formula: C.owner, perms: '+CRUD' }; }
-// « national: true » : règle retirée de la configuration cible si TABLE_UTILISATEURS n'a pas de colonne COLONNE_ROLE.
-function regleNational() { return { label: 'Équipe nationale', formula: C.national, perms: '+CRUD', national: true }; }
+function regleNational() { return { label: 'Équipe nationale', formula: C.national, perms: '+CRUD' }; }
 function regleAcademie(perms = '+CRUD') { return { label: "Personnel de l'académie du stage", formula: C.academieStage, perms }; }
 function regleRefus(table) { return { label: 'Tous les autres', formula: '', perms: '-CRUD', memo: MEMO_REFUS(table) }; }
 
@@ -149,7 +157,7 @@ const TABLES_REFERENCE = [
           ` or (user.Stagiaire.id and user.Stagiaire.Stage == rec.id)`,
         perms: '+R' },
       { label: 'Propriétaires (hors prévisualisation d\'un lien)', formula: `${C.owner} and ${C.sansCle}`, perms: '+CRUD' },
-      { label: 'Équipe nationale (hors prévisualisation d\'un lien)', formula: `${C.national} and ${C.sansCle}`, perms: '+CRUD', national: true },
+      { label: 'Équipe nationale (hors prévisualisation d\'un lien)', formula: `${C.national} and ${C.sansCle}`, perms: '+CRUD' },
       { label: "Personnel de l'académie (hors prévisualisation d'un lien)",
         formula: `user.Profil.id and rec.Academie_de_formation == user.Profil.Academie and ${C.sansCle}`, perms: '+CRUD' },
       regleRefus('BD_Stages2'),
@@ -267,11 +275,11 @@ const TABLES_REFERENCE = [
   },
   {
     tableId: 'Annuaire_FPGC',
-    description: 'Annuaire national — personnel connecté uniquement, suppression réservée au national',
+    description: "Annuaire — chaque académie voit les personnels de son académie d'affectation (décision du 09/11/2026), suppression réservée au national",
     rules: [
       regleOwner(),
       regleNational(),
-      { label: 'Personnel répertorié (toutes académies)', formula: C.profil, perms: '+CRU-D' },
+      { label: "Académie : personnels qui y sont affectés", formula: 'user.Profil.id and rec.Academie_d_affectation == user.Profil.Academie', perms: '+CRU-D' },
       regleRefus('Annuaire_FPGC'),
     ],
   },
@@ -288,10 +296,16 @@ const TABLES_REFERENCE = [
   },
   {
     tableId: 'Parametres_widget',
-    description: "Réglages des widgets — modification par le personnel, lecture par les visiteurs munis d'un lien valide",
+    description: "Réglages des widgets — les académies modifient la configuration des formulaires, les réglages communs restent au national",
     rules: [
       regleOwner(),
-      { label: 'Personnel répertorié', formula: C.profil, perms: '+CRUD' },
+      regleNational(),
+      { label: 'Personnel : configuration des formulaires (création)',
+        formula: `${C.profil} and newRec.Cle in ${JSON.stringify(PARAMETRES_ACADEMIQUES)}`, perms: '+C' },
+      { label: 'Personnel : configuration des formulaires (modification)',
+        formula: `${C.profil} and rec.Cle in ${JSON.stringify(PARAMETRES_ACADEMIQUES)} and newRec.Cle in ${JSON.stringify(PARAMETRES_ACADEMIQUES)}`, perms: '+U' },
+      { label: 'Personnel : lecture des autres réglages', formula: C.profil, perms: '+R-CUD',
+        memo: 'Réglage commun à toutes les académies : seuls les propriétaires du document et l\'équipe nationale peuvent le modifier.' },
       { label: "Visiteur muni d'un lien valide (lecture)", formula: C.visiteurValide, perms: '+R-CUD' },
       regleRefus('Parametres_widget'),
     ],
@@ -367,6 +381,7 @@ const MODELES_TABLES_ANNEXES = {
 };
 
 const NOTE_CORRECTIONS = [
+  "Décisions du 09/11/2026 : le personnel académique ne voit l'annuaire que pour son académie d'affectation ; un compte rattaché à l'académie « National » a la vue nationale (colonne pont Utilisateurs.Est_national) ; dans Parametres_widget, les académies ne modifient que la configuration des formulaires (formulaireConfig, satisfactionConfig).",
   "Lien d'enquête : le widget de gestion produit « SatisfactionUUID_ », les règles du v17 attendaient « Satisfaction_UUID_ » : la page d'enquête ne pouvait rien lire. Les règles suivent désormais le nom réellement produit.",
   "Reference, Parametres_widget, Modules_de_formation : plus lisibles avec le seul lien public. Lecture réservée au personnel et aux visiteurs dont la clé correspond à un stage ou un stagiaire existant (attribut StageRecrutement ajouté pour vérifier la clé de recrutement).",
   "Anonymat : un visiteur non connecté a pour adresse « anon@getgrist.com », jamais une adresse vide — « user.Email is None » ne le reconnaît donc pas. Les règles utilisent la présence d'une clé de lien (ou « Tous les autres »).",
@@ -549,16 +564,6 @@ async function chargerTout() {
 // Vérifications préalables
 // ---------------------------------------------------------------------------------------
 
-// Vue nationale par rôle : seulement si la table des utilisateurs a une colonne de rôle.
-function nationalActif() {
-  const t = state.schema && state.schema.tables.get(TABLE_UTILISATEURS);
-  return !!(t && t.cols.has(COLONNE_ROLE));
-}
-
-function reglesActives(rules) {
-  return nationalActif() ? rules : rules.filter((r) => !r.national);
-}
-
 function tablesGerees() {
   return TABLES_REFERENCE.filter((t) => state.schema.tables.has(t.tableId));
 }
@@ -623,7 +628,7 @@ async function verifierPrerequis() {
   const absentes = [];
   for (const t of tablesGerees()) {
     const cols = S.get(t.tableId).cols;
-    const formules = reglesActives([...t.rules, ...(t.columnRules || []).flatMap((cr) => cr.rules)]).map((r) => r.formula);
+    const formules = ([...t.rules, ...(t.columnRules || []).flatMap((cr) => cr.rules)]).map((r) => r.formula);
     for (const f of formules) {
       for (const c of colonnesReferencees(f)) {
         const prevue = COLONNES_PONT.some((p) => p.table === t.tableId && p.col === c);
@@ -638,14 +643,15 @@ async function verifierPrerequis() {
     if (!t.cols.has(ua.lookupColId)) uaAbsentes.push(`${ua.name} : colonne ${ua.tableId}.${ua.lookupColId} absente`);
   }
   // Colonnes lues sur les User Attributes (user.Profil.Role, user.Stagiaire.Sous_groupe…)
-  const toutesFormules = reglesActives([...TABLES_REFERENCE.flatMap((t) => [...t.rules, ...(t.columnRules || []).flatMap((cr) => cr.rules)]), ...REGLES_DOCUMENT])
+  const toutesFormules = ([...TABLES_REFERENCE.flatMap((t) => [...t.rules, ...(t.columnRules || []).flatMap((cr) => cr.rules)]), ...REGLES_DOCUMENT])
     .map((r) => r.formula);
   for (const f of toutesFormules) {
     for (const { attr, col } of attributsReferences(f)) {
       if (col === 'id') continue;
       const ua = USER_ATTRIBUTES.find((u) => u.name === attr);
       const t = ua && S.get(ua.tableId);
-      if (t && !t.cols.has(col)) uaAbsentes.push(`user.${attr}.${col} : colonne ${ua.tableId}.${col} absente`);
+      const prevue = COLONNES_PONT.some((p) => p.table === ua.tableId && p.col === col);
+      if (t && !t.cols.has(col) && !prevue) uaAbsentes.push(`user.${attr}.${col} : colonne ${ua.tableId}.${col} absente`);
     }
   }
   if (absentes.length || uaAbsentes.length) {
@@ -658,20 +664,24 @@ async function verifierPrerequis() {
   if (S.has(TABLE_UTILISATEURS)) {
     try {
       const users = await fetchRows(TABLE_UTILISATEURS);
-      if (!nationalActif()) {
-        add('info', `${users.length} compte(s) répertorié(s) — pas de colonne « ${COLONNE_ROLE} »`,
-          `Sans colonne ${TABLE_UTILISATEURS}.${COLONNE_ROLE}, la vue nationale (tous les stages) est réservée aux propriétaires du document. ` +
-          `Pour la donner à des comptes non propriétaires, ajoutez une colonne ${COLONNE_ROLE} et la valeur « ${VALEUR_ROLE_NATIONAL} ».`);
-      } else {
-        const nat = users.filter((u) => u[COLONNE_ROLE] === VALEUR_ROLE_NATIONAL && u.Email);
-        if (!nat.length) {
-          add('warn', `Aucun compte « ${VALEUR_ROLE_NATIONAL} » dans ${TABLE_UTILISATEURS}`,
-            "Les propriétaires gardent l'accès, mais personne d'autre n'aura la vue nationale.");
-        } else {
-          add('ok', `${users.length} compte(s) répertorié(s), dont ${nat.length} national(aux)`, '');
-        }
+      // Vue nationale : comptes rattachés à l'académie « National » de la table Reference.
+      let idsNationaux = new Set();
+      try {
+        const refs = await fetchRows('Reference');
+        idsNationaux = new Set(refs.filter((r) => String(r.Academie || '').trim().toLowerCase() === ACADEMIE_NATIONALE.toLowerCase()).map((r) => r.id));
+      } catch (e) { /* Reference illisible : déjà signalé ailleurs */ }
+      if (!idsNationaux.size) {
+        add('warn', `Aucune ligne « ${ACADEMIE_NATIONALE} » dans la table Reference`,
+          `La vue nationale repose sur cette ligne : ajoutez-la (colonne Academie = « ${ACADEMIE_NATIONALE} ») avant d'appliquer.`);
       }
-      const sansAcademie = users.filter((u) => u.Email && !u.Academie && u[COLONNE_ROLE] !== VALEUR_ROLE_NATIONAL);
+      const nat = users.filter((u) => u.Email && idsNationaux.has(u.Academie));
+      if (!nat.length) {
+        add('warn', `Aucun compte rattaché à l'académie « ${ACADEMIE_NATIONALE} » dans ${TABLE_UTILISATEURS}`,
+          "Les propriétaires gardent l'accès, mais personne d'autre n'aura la vue nationale.");
+      } else {
+        add('ok', `${users.length} compte(s) répertorié(s), dont ${nat.length} national(aux)`, '');
+      }
+      const sansAcademie = users.filter((u) => u.Email && !u.Academie);
       if (sansAcademie.length) {
         add('warn', `${sansAcademie.length} compte(s) sans académie`,
           `Ces comptes ne verront aucun stage : ${sansAcademie.map((u) => u.Email).join(', ')}.`);
@@ -726,15 +736,15 @@ function configurationCible() {
   const cible = [];
   cible.push({ tableId: '*', colIds: '*', rules: REGLES_DOCUMENT, libelle: 'Document entier (filet de sécurité)' });
   for (const t of tablesGerees()) {
-    cible.push({ tableId: t.tableId, colIds: '*', rules: reglesActives(t.rules), libelle: t.tableId, description: t.description });
+    cible.push({ tableId: t.tableId, colIds: '*', rules: (t.rules), libelle: t.tableId, description: t.description });
     for (const cr of t.columnRules || []) {
       const cols = cr.colIds(colonnesDe(t.tableId));
-      if (cols.length) cible.push({ tableId: t.tableId, colIds: cols.join(','), rules: reglesActives(cr.rules), libelle: `${t.tableId} — colonnes`, description: cr.description });
+      if (cols.length) cible.push({ tableId: t.tableId, colIds: cols.join(','), rules: (cr.rules), libelle: `${t.tableId} — colonnes`, description: cr.description });
     }
   }
   for (const tableId of tablesAnnexes()) {
     const modele = MODELES_TABLES_ANNEXES[state.annexes[tableId]] || MODELES_TABLES_ANNEXES.national;
-    cible.push({ tableId, colIds: '*', rules: reglesActives(modele.rules(tableId)), libelle: tableId, description: `Table annexe — ${modele.libelle}`, annexe: true });
+    cible.push({ tableId, colIds: '*', rules: (modele.rules(tableId)), libelle: tableId, description: `Table annexe — ${modele.libelle}`, annexe: true });
   }
   return cible;
 }
