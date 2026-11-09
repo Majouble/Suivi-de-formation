@@ -1,0 +1,394 @@
+<!-- FPGC-08 (72e échange) : la protection contre la compromission de CDN est assurée par les
+     attributs integrity (SRI) + crossorigin="anonymous" sur chaque ressource externe ci-dessous.
+     Une balise <meta> CSP est INCOMPATIBLE avec les widgets Grist : grist-plugin-api.js utilise
+     eval() en interne, Grist injecte des scripts inline dans l'iframe, et connect-src empêche le
+     chargement des source maps. Une CSP efficace pour ce widget doit être posée au niveau des
+     en-têtes HTTP du serveur hébergeant les widgets (nginx, caddy, etc.) — pas dans le HTML.
+     Exemple d'en-tête HTTP à ajouter côté serveur :
+       Content-Security-Policy: script-src 'self' 'unsafe-eval' 'unsafe-inline'
+         https://docs.getgrist.com https://cdn.jsdelivr.net;
+         img-src data: blob: https://cdn.jsdelivr.net https://data.geopf.fr;
+         object-src 'none'; -->
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<!-- 48e échange : bascule de la carte des établissements (nuage de points sans fond de carte,
+     42e/46e échange) vers Leaflet + fond de carte IGN Géoplateforme (WMTS Web Mercator, keyless) —
+     voir processus-gestion-stage.md, 48e échange, pour la justification (EPSG:2154 écarté faute de
+     couverture DOM-TOM ; Proj4Leaflet jugé trop fragile pour en dépendre). -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous" />
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+<!-- 61e échange : bascule des 3 blocs de graphiques du tableau de bord (répartition par fonction,
+     progression annuelle, taux par département) du SVG inline fait main vers Chart.js — voir
+     processus-gestion-stage.md, 61e échange. Même principe que Leaflet ci-dessus : chargée depuis un
+     CDN, avec dégradation gracieuse si le réseau ne le permet pas (voir `typeof Chart === 'undefined'`
+     dans mountCharts, pilotage-academique.js) — non vérifiable dans le bac à sable de test pour la
+     même raison que Leaflet (voir CHART_SKIP_REASON dans pilotage-smoketest.js). -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"
+        integrity="sha256-SERKgtTty1vsDxll+qzd4Y2cF9swY9BCq62i9wXJ9Uo=" crossorigin="anonymous"></script>
+<style>
+  :root {
+    --bg: #ffffff; --surface: #ffffff; --surface-alt: #f3f3fb;
+    --text: #1e1e28; --text-muted: #5d5d6b; --border: #dbdbe4;
+    --accent: #000091; --accent-contrast: #ffffff;
+    --ok: #18753c; --ok-bg: #e8f5ea; --warn: #8d5a00; --warn-bg: #fef2e1;
+    --danger: #b71c1c; --danger-bg: #fde8e8; --info-bg: #e5e5f4;
+    /* 55e échange : palette catégorielle fixe (bloc donut « Répartition des formés par fonction ») —
+       reprise telle quelle de la palette de référence de la compétence dataviz (references/
+       palette.md), validée avec scripts/validate_palette.js (voir FONCTION_ORDRE dans
+       pilotage-academique.js pour le détail des commandes et résultats). Ordre FIXE, jamais recalé
+       par rang/valeur.
+       56e échange : FONCTION_ORDRE passe de 8 à 7 entrées (fusion Adjoint gestionnaire/Secrétaire
+       général) — --fonction-color-0..6 (les 7 valeurs ci-dessous, INCHANGÉES) sont revalidées comme
+       ensemble de 7 (voir pilotage-academique.js, ALL CHECKS PASS light et dark) : retirer une
+       couleur d'un ensemble déjà validé ne dégrade jamais les distances CVD/contraste des couleurs
+       restantes. --fonction-color-7 (8e teinte, portait l'ancien « Autre ») reste définie ci-dessous
+       sans dommage — plus jamais indexée par renderRepartitionFonctionChart. */
+    --fonction-color-0: #2a78d6; --fonction-color-1: #eb6834; --fonction-color-2: #1baf7a; --fonction-color-3: #eda100;
+    --fonction-color-4: #e87ba4; --fonction-color-5: #008300; --fonction-color-6: #4a3aa7; --fonction-color-7: #e34948;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171f; --surface: #1d1d27; --surface-alt: #24242f;
+      --text: #f1f1f4; --text-muted: #a3a3b2; --border: #34343f;
+      --accent: #8b8bff; --accent-contrast: #0d0d14;
+      --ok: #4fd07a; --ok-bg: #123321; --warn: #f0b429; --warn-bg: #3a2a05;
+      --danger: #ff6b6b; --danger-bg: #3a1414; --info-bg: #24243a;
+      /* 55e échange : mode sombre = ses propres valeurs validées sur le fond sombre (pas une simple
+         inversion des teintes claires ci-dessus) — voir FONCTION_ORDRE dans pilotage-academique.js.
+         56e échange : mêmes 7 valeurs (--fonction-color-0..6, INCHANGÉES) revalidées comme ensemble
+         de 7 — voir la note ci-dessus. */
+      --fonction-color-0: #3987e5; --fonction-color-1: #d95926; --fonction-color-2: #199e70; --fonction-color-3: #c98500;
+      --fonction-color-4: #d55181; --fonction-color-5: #008300; --fonction-color-6: #9085e9; --fonction-color-7: #e66767;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: 'Work Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  a { color: var(--accent); }
+  button, input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
+  .skip-link { position: absolute; left: -999px; top: 0; background: var(--accent); color: var(--accent-contrast); padding: 8px 14px; z-index: 100; }
+  .skip-link:focus { left: 8px; top: 8px; }
+  .app { min-height: 100vh; width: 100%; user-select: none; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; padding: 16px 28px; border-bottom: 2px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 20; flex-wrap: wrap; gap: 12px; }
+  .app-name { font-size: 18px; font-weight: 700; margin: 0; }
+  .app-sub { font-size: 12.5px; color: var(--text-muted); margin: 2px 0 0; }
+  .topbar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .btn { border: 1.5px solid transparent; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; background: var(--surface-alt); border-color: var(--border); color: var(--text); }
+  .btn:hover { filter: brightness(0.97); }
+  .btn:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+  .btn-secondary { background: transparent; border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+  .btn-small { padding: 5px 10px; font-size: 12px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .content { padding: 20px 28px 80px; max-width: 1400px; margin: 0 auto; }
+  .content:focus { outline: none; }
+  .flash { position: sticky; top: 66px; z-index: 19; margin: 0 28px; padding: 10px 14px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .flash.ok { background: var(--ok-bg); color: var(--ok); }
+  .flash.error { background: var(--danger-bg); color: var(--danger); }
+  .flash-close { background: none; border: none; color: inherit; cursor: pointer; font-size: 15px; }
+  .dev-banner { margin: 0 28px 0; padding: 10px 14px; background: var(--info-bg); border: 1px solid var(--border); font-size: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between; }
+  .dev-banner select { padding: 5px 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+
+  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 28px; border-bottom: 1px solid var(--border); flex-wrap: wrap; background: var(--surface-alt); }
+  .toolbar-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .toolbar-hint { font-size: 12px; color: var(--text-muted); }
+  .tab-btn { border: 1.5px solid var(--border); background: var(--surface); color: var(--text-muted); padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .tab-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); padding: 18px 20px; margin-bottom: 18px; }
+  .card h3 { margin: 0 0 4px; font-size: 14.5px; }
+  .card-sub { font-size: 12px; color: var(--text-muted); margin: 0 0 14px; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; flex: 1 1 auto; min-height: 0; }
+  .kpi-tile { background: var(--surface-alt); border: 1px solid var(--border); padding: 8px 10px; display: flex; flex-direction: column; justify-content: center; overflow: hidden; min-height: 0; }
+  .kpi-tile-label { font-size: 10px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); font-weight: 600; }
+  .kpi-tile-value { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 18px; font-weight: 700; margin-top: 4px; }
+  .kpi-tile-sub { font-size: 11px; margin-top: 2px; font-weight: 600; }
+  .kpi-tile-sub.bon { color: var(--ok); } .kpi-tile-sub.surveiller { color: var(--warn); } .kpi-tile-sub.critique { color: var(--danger); } .kpi-tile-sub.neutre { color: var(--text-muted); }
+
+  .repere-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border); flex: 0 0 auto; }
+  .repere-row:last-child { border-bottom: none; }
+  .repere-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .repere-dot.bon { background: var(--ok); } .repere-dot.surveiller { background: var(--warn); } .repere-dot.critique { background: var(--danger); }
+  .repere-text { flex: 1; min-width: 0; }
+  .repere-label { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .repere-note { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .list-truncated-note { font-size: 10.5px; color: var(--text-muted); font-style: italic; margin-top: 4px; flex: 0 0 auto; }
+  .badge { display: inline-block; padding: 2px 8px; font-size: 11px; font-weight: 600; border: 1px solid transparent; white-space: nowrap; }
+  .badge.bon { background: var(--ok-bg); color: var(--ok); }
+  .badge.surveiller { background: var(--warn-bg); color: var(--warn); }
+  .badge.critique { background: var(--danger-bg); color: var(--danger); }
+
+  /* 53e échange (bug 1a) : `position: relative` seul n'établit PAS de contexte d'empilement — sans
+     z-index explicite, les éléments internes de Leaflet (panneaux/contrôles, jusqu'à z-index 1000
+     dans les feuilles de style Leaflet) ne sont pas garantis contenus dans une boîte locale et
+     pouvaient, en plein écran, s'empiler visuellement au-dessus d'éléments hors de .mini-map (titre/
+     bouton Fermer de la modale). `z-index: 0` force la création d'un contexte d'empilement propre à
+     .mini-map, qui contient désormais tout Leaflet à l'intérieur de sa propre boîte. */
+  .mini-map { position: relative; z-index: 0; flex: 1 1 auto; min-height: 50px; background:
+      linear-gradient(var(--border) 1px, transparent 1px) 0 0 / 24px 24px,
+      linear-gradient(90deg, var(--border) 1px, transparent 1px) 0 0 / 24px 24px,
+      var(--surface-alt);
+    border: 1px solid var(--border); overflow: hidden; }
+  /* 46e échange : les points deviennent cliquables (clic sur un établissement -> liste des
+     personnels formés qui y sont rattachés, voir openEtabPersonnelModal) — curseur adapté.
+     48e échange : ce marqueur n'est plus positionné à la main (projectEtabs) mais rendu comme
+     icône Leaflet (L.divIcon), sur un vrai fond de carte — voir mountCarteLeaflet. */
+  .map-dot { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border); cursor: pointer; }
+  .map-dot.bon { background: var(--ok); } .map-dot.surveiller { background: var(--warn); } .map-dot.critique { background: var(--danger); }
+  /* 51e échange : encodage binaire « a du personnel formé » (voir mountCarteLeaflet) — un point
+     vert distinct pour un établissement avec au moins un personnel de l'annuaire FPGC rattaché,
+     un point gris neutre sinon (la carte affichant désormais tous les établissements réels de
+     l'académie, pas seulement ceux ayant une candidature en cours). */
+  .map-dot.forme { background: var(--ok); } .map-dot.neutre { background: var(--text-muted); }
+  /* 48e échange : les circonscriptions du 1er degré (inspection — pas des établissements) sont
+     géolocalisées via la même table Etablissements_education_nationale (voir Libelle_nature,
+     `CIRCONSCRIPTION_NATURE`) mais doivent rester visuellement distinctes — carré plutôt que rond,
+     couleur neutre (--accent) plutôt qu'un code couleur bon/surveiller/critique qui ne s'applique
+     qu'à une cible par établissement, pas à une circonscription. */
+  /* 50e échange : le carré et le contour du rond ne sont plus une couleur neutre unique — chacun
+     reçoit la couleur cartographique de sa circonscription (Couleur_circonscription, calculée par
+     assignCirconscriptionColors dans pilotage-academique.js), posée en style inline par
+     mountCarteLeaflet. Le fallback --accent ne s'applique plus qu'en l'absence de couleur connue
+     (annuaire de l'académie jamais actualisé depuis l'ajout de cette colonne). */
+  .map-dot.circonscription { border-radius: 3px; background: var(--accent); }
+  .map-caption { font-size: 10.5px; color: var(--text-muted); margin-top: 8px; font-style: italic; flex: 0 0 auto; }
+  /* 48e échange : conteneur Leaflet — remplace l'ancien fond quadrillé (dessiné à la main pour le
+     nuage de points sans fond de carte) ; Leaflet peint son propre fond par-dessus. */
+  .mini-map .leaflet-container { position: absolute; inset: 0; background: var(--surface-alt); font-family: inherit; }
+  /* 50e échange : bouton — un vrai contrôle Leaflet (L.Control, voir mountCarteLeaflet), pas un
+     élément HTML statique du bloc : reste correctement au-dessus de la carte et n'ajoute aucune
+     hauteur au calcul adaptatif du bloc (blockContentHeightPx). 52e échange : renommé « Filtres »
+     (fusion de l'ancien bouton « Circonscriptions » avec les nouveaux filtres type/secteur/tutelle,
+     voir openCarteFiltersModal) — classe CSS inchangée. */
+  .map-filter-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; font-size: 10.5px; font-weight: 600; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.2); color: var(--text); }
+  .map-filter-btn:hover { background: var(--surface-alt); }
+  /* 52e échange : bouton « Agrandir » du bloc carte (data-expand-carte, voir renderTableauTab) —
+     élément HTML classique de .dash-block-actions cette fois (pas un contrôle Leaflet comme
+     .map-filter-btn ci-dessus : il doit rester cliquable même quand Leaflet n'a pas pu se charger). */
+  .carte-expand-btn { background: none; border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 4px 7px; }
+  .carte-expand-btn:hover { color: var(--accent); border-color: var(--accent); }
+  /* 50e échange : modale « Filtrer par circonscription », 4e section de la modale « Filtres »
+     depuis le 52e échange (voir openCarteFiltersModal) — contenu inchangé. */
+  .circ-filter-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; }
+  .circ-filter-row .circ-swatch { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; border: 1px solid var(--border); }
+  .circ-filter-row .circ-nom { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .circ-filter-row .circ-count { color: var(--text-muted); font-size: 11.5px; flex: 0 0 auto; }
+  /* 52e échange : nouvelles sections type d'établissement/secteur/tutelle de la modale « Filtres »
+     (voir openCarteFiltersModal) — classe distincte de .circ-filter-row (sans pastille de couleur)
+     pour que pilotage-smoketest.js puisse continuer à compter .circ-filter-row comme « une ligne
+     par circonscription » sans qu'il soit mélangé avec ces nouvelles lignes. */
+  .filter-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; }
+  .filter-row .filter-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .filter-row .filter-count { color: var(--text-muted); font-size: 11.5px; flex: 0 0 auto; }
+  .leaflet-popup-content, .leaflet-tooltip { font-family: 'Work Sans', system-ui, sans-serif; font-size: 12px; }
+  .etab-table-wrap { flex: 0 0 auto; overflow: hidden; margin-top: 6px; }
+  .etab-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .etab-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); font-weight: 600; padding: 5px 7px; border-bottom: 1.5px solid var(--border); }
+  .etab-table td { padding: 6px 7px; border-bottom: 1px solid var(--border); }
+  .etab-table td.num { text-align: right; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; }
+  /* 52e échange : .etab-table reste utilisée ailleurs (Cible auto, ajustements, modale de détail
+     par établissement) — seule la variante « ligne cliquable » ci-dessous, propre à l'ancien
+     tableau HTML sous la carte (retiré, voir renderBlockBody('carte')), est un mort-code retiré :
+     .etab-row-clickable n'existe plus nulle part dans le DOM (voir bindEvents/carteExpand). */
+
+  /* 46e échange : onglet « Cible auto » (établissements réels de l'Annuaire de l'éducation        */
+  /* nationale comme dénominateur) et modale de détail des personnels formés par établissement.    */
+  .cible-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .cible-toolbar label { font-size: 12.5px; font-weight: 600; }
+  .cible-toolbar select { padding: 6px 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+  .cible-summary { display: flex; gap: 18px; flex-wrap: wrap; margin: 12px 0 16px; }
+  .cible-summary-tile { background: var(--surface-alt); border: 1px solid var(--border); padding: 10px 14px; min-width: 140px; }
+  .cible-summary-tile .num-big { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 19px; font-weight: 700; }
+  .cible-summary-tile .num-label { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .ajuste-note { font-size: 10.5px; color: var(--text-muted); font-weight: 400; }
+
+  /* 47e échange : formulaire d'ajustement par établissement (Cibles_fonction_overrides) et statut
+     du bouton d'actualisation de l'annuaire national (onglet Paramètres). */
+  .ajustement-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .ajustement-form select, .ajustement-form input[type="number"], .ajustement-form input[type="text"] {
+    padding: 7px 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12.5px;
+  }
+  .ajustement-form select#ajustementEtabSelect { flex: 1 1 220px; min-width: 180px; }
+  .ajustement-form input[type="number"] { width: 80px; }
+  .ajustement-form input[type="text"] { flex: 1 1 160px; min-width: 140px; }
+  /* 64e échange : écran de saisie de l'objectif prévisionnel (table Objectifs_previsionnels,
+     onglet Paramètres) — même vocabulaire visuel que .ajustement-form/.cible-toolbar ci-dessus. */
+  .objectif-form { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+  .objectif-field { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; }
+  .objectif-field input[type="number"] {
+    padding: 6px 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    width: 140px; font-weight: 400; font-size: 12.5px;
+  }
+  .refresh-status { font-size: 12.5px; margin: 4px 0 12px; }
+  .refresh-progress { font-size: 12px; color: var(--text-muted); margin: 8px 0 0; font-style: italic; }
+  /* 53e échange (bug 1b, défense en profondeur indépendante de (a) ci-dessus) : z-index nettement
+     supérieur au maximum utilisé par Leaflet pour ses contrôles (.leaflet-control etc., jusqu'à
+     1000) — garantit qu'une modale reste au-dessus du fond de carte IGN même si (a) ne suffisait pas
+     dans un navigateur donné. */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; z-index: 1200; }
+  /* 54e échange : #carteFiltersModal est placé AVANT #carteExpandModal dans le DOM (voir plus bas) —
+     à z-index égal (1200 pour les deux, hérité de .modal-backdrop), l'élément le plus tard dans le
+     DOM (#carteExpandModal) s'affichait par-dessus, donc ouvrir « Filtres » par-dessus la carte
+     plein écran faisait apparaître la modale Filtres SOUS la carte plein écran, à l'inverse du flux
+     voulu (agrandir la carte D'ABORD, puis ouvrir Filtres PAR-DESSUS). z-index dédié, supérieur à
+     1200, indépendant de l'ordre DOM et de l'état d'ouverture des deux modales — ne touche pas à la
+     règle générale .modal-backdrop, utilisée aussi par d'autres modales non concernées (ex.
+     #etabPersonnelBackdrop). */
+  #carteFiltersBackdrop { z-index: 1300; }
+  .modal { background: var(--surface); border: 1px solid var(--border); width: 100%; max-width: 640px; padding: 24px; }
+  .modal h2 { margin: 0 0 4px; font-size: 17px; }
+  .modal-sub { font-size: 12px; color: var(--text-muted); margin: 0 0 12px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  /* 52e échange : format large de la modale plein écran de la carte (bouton « Agrandir », voir
+     openCarteExpandModal) — même structure .modal-backdrop/.modal que les autres modales (fermeture
+     au clic sur le fond, même convention), mais dimensionnée pour occuper l'essentiel de l'écran ;
+     .carte-expand-map-wrap donne une vraie hauteur en pixels à son conteneur (nécessaire à Leaflet,
+     qui ne sait pas se dimensionner par lui-même), en réutilisant .mini-map (host interne) pour
+     hériter du positionnement .leaflet-container déjà défini plus haut plutôt que de le redéfinir. */
+  .modal-backdrop.wide { padding: 20px; align-items: center; }
+  .modal.carte-expand { max-width: 94vw; width: 94vw; height: 90vh; display: flex; flex-direction: column; padding: 16px 20px; }
+  .carte-expand-map-wrap { flex: 1 1 auto; min-height: 0; display: flex; }
+  .carte-expand-map-wrap .mini-map { flex: 1 1 auto; }
+  /* 48e échange : fenêtre étendue (personnel formé + ajustements de cible), reprise du mock-up
+     validé — voir processus-gestion-stage.md, 48e échange. */
+  .modal-section-title { font-size: 13px; font-weight: 700; margin: 20px 0 4px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .modal-section-title.first { border-top: none; padding-top: 0; margin-top: 0; }
+  .stat-callout { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 16px; padding: 10px 14px; background: var(--surface-alt); border: 1px solid var(--border); }
+  .stat-value { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 700; font-size: 21px; color: var(--accent); }
+  .stat-label { font-size: 12.5px; color: var(--text-muted); }
+
+  .prev-figures { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; flex: 0 0 auto; }
+  .prev-big { font-size: 22px; font-weight: 700; font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  .prev-muted { color: var(--text-muted); font-size: 12px; }
+  .prev-track { height: 6px; background: var(--surface-alt); border: 1px solid var(--border); flex: 0 0 auto; }
+  .prev-fill { height: 100%; }
+  .prev-fill.bon { background: var(--ok); } .prev-fill.surveiller { background: var(--warn); } .prev-fill.critique { background: var(--danger); }
+  .prev-note { font-size: 10.5px; color: var(--text-muted); margin-top: 3px; flex: 0 0 auto; overflow: hidden; }
+
+  /* 55e échange : retrait de la fonctionnalité Croisements — .cx-row/.cx-label/.cx-value (ancien
+     bloc de croisement) sont retirées, remplacées par les règles .viz-* ci-dessous (3 nouveaux
+     blocs fixes de tableau de bord, voir renderBlockBody dans pilotage-academique.js).
+     61e échange : le rendu SVG fait main de ces 3 blocs est remplacé par Chart.js (voir
+     pilotage-academique.js, renderRepartitionFonctionChart/renderProgressionAnnuelleChart/
+     renderTauxParDepartementChart) — les conteneurs .viz-donut-svg/.viz-combo-svg/.viz-bardept-svg
+     ci-dessous hébergent désormais un <canvas> (position: relative ajoutée, requise par le
+     redimensionnement responsive de Chart.js) au lieu d'un <svg> ; les règles de présentation
+     purement SVG (.viz-bar-label/.viz-axis-label/.viz-line-endlabel/.viz-gridline/.viz-line-path/
+     .viz-line-point) sont retirées, mortes depuis ce changement — l'équivalent (étiquettes de
+     valeur, grille, tracé de courbe) est désormais dessiné par Chart.js/ses plugins (voir
+     CENTER_TEXT_PLUGIN/VALUE_LABELS_PLUGIN). Les couleurs restent lues depuis ces mêmes variables
+     CSS via un helper cssVar() côté JS (Chart.js ne sait pas résoudre var(--x) sur un canvas). */
+  .viz-donut-wrap { display: flex; flex: 1 1 auto; min-height: 0; gap: 12px; align-items: center; }
+  .viz-donut-svg { flex: 0 0 auto; width: 42%; max-width: 120px; aspect-ratio: 1 / 1; position: relative; }
+  .viz-donut-svg canvas { display: block; }
+  .viz-legend-wrap { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; }
+  .viz-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+  .viz-legend-row { flex-direction: column; }
+  .viz-legend li { display: flex; align-items: center; gap: 7px; font-size: 11.5px; }
+  .viz-swatch { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
+  .viz-legend-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .viz-legend-value { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; color: var(--text-muted); flex: 0 0 auto; }
+
+  /* Blocs combinés barres/courbe (progressionAnnuelle) et barres (tauxParDepartement) — même
+     principe : canvas Chart.js responsive au-dessus, légende sous forme de ligne compacte en
+     dessous. */
+  .viz-combo-wrap { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; gap: 6px; }
+  .viz-combo-svg { flex: 1 1 auto; min-height: 0; position: relative; }
+  .viz-combo-svg canvas { display: block; }
+  /* tauxParDepartement (61e échange) : le nombre de départements peut dépasser la largeur du bloc —
+     .viz-canvas-inner (voir renderTauxParDepartementChart) porte une largeur fixe calculée comme
+     l'ancien viewBox SVG (Math.max(160, n*56)) à l'intérieur de ce conteneur défilant, pour garder
+     une largeur de barre lisible plutôt que de les compresser indéfiniment. */
+  .viz-bardept-wrap .viz-bardept-svg { overflow-x: auto; position: relative; }
+  .viz-canvas-inner { position: relative; height: 100%; }
+  .fonction-color-0 { background: var(--fonction-color-0); fill: var(--fonction-color-0); stroke: var(--fonction-color-0); }
+  .fonction-color-1 { background: var(--fonction-color-1); fill: var(--fonction-color-1); stroke: var(--fonction-color-1); }
+  .fonction-color-2 { background: var(--fonction-color-2); fill: var(--fonction-color-2); stroke: var(--fonction-color-2); }
+  .fonction-color-3 { background: var(--fonction-color-3); fill: var(--fonction-color-3); stroke: var(--fonction-color-3); }
+  .fonction-color-4 { background: var(--fonction-color-4); fill: var(--fonction-color-4); stroke: var(--fonction-color-4); }
+  .fonction-color-5 { background: var(--fonction-color-5); fill: var(--fonction-color-5); stroke: var(--fonction-color-5); }
+  .fonction-color-6 { background: var(--fonction-color-6); fill: var(--fonction-color-6); stroke: var(--fonction-color-6); }
+  .fonction-color-7 { background: var(--fonction-color-7); fill: var(--fonction-color-7); stroke: var(--fonction-color-7); }
+  /* Bloc tauxParDepartement : couleur de barre = statusFromTaux, mêmes jetons que le reste du
+     tableau de bord (badges, repere-dot, map-dot) — pas une nouvelle échelle de couleur.
+     61e échange : ajout de `background` sur ces 6 règles (et les 8 .fonction-color-N ci-dessus) —
+     jusqu'ici seuls fill/stroke étaient définis (pertinents pour les <circle>/<path> SVG retirés
+     ci-dessus), ce qui laissait en réalité les pastilles <span class="viz-swatch ..."> de légende
+     sans couleur visible (fill/stroke ne s'appliquent pas à un <span>) ; corrigé au passage. */
+  .viz-status-bon { background: var(--ok); fill: var(--ok); stroke: var(--ok); }
+  .viz-status-surveiller { background: var(--warn); fill: var(--warn); stroke: var(--warn); }
+  .viz-status-critique { background: var(--danger); fill: var(--danger); stroke: var(--danger); }
+  .viz-status-neutre { background: var(--text-muted); fill: var(--text-muted); stroke: var(--text-muted); }
+
+  .dashboard-grid { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 100px; gap: 14px; }
+  .dashboard-grid.editing .grid-cell { border-color: var(--border); }
+  .grid-cell { border: 1px dashed transparent; }
+  .dash-block { background: var(--surface); border: 1px solid var(--border); padding: 14px 16px; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+  .dash-block.is-active-drag { box-shadow: 0 0 0 2px var(--accent); z-index: 5; }
+  .dash-block.editable:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+  .dash-block-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; flex: 0 0 auto; }
+  .dash-block-body { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .dash-block-body.center-content { justify-content: center; }
+  .dash-block-title { font-size: 13px; font-weight: 700; }
+  .dash-block-actions { display: flex; align-items: center; gap: 6px; }
+  .drag-handle { display: none; align-items: center; justify-content: center; width: 26px; height: 26px; cursor: grab; color: var(--text-muted); background: var(--surface-alt); border: 1px solid var(--border); flex-shrink: 0; touch-action: none; }
+  .dashboard-grid.editing .drag-handle { display: inline-flex; }
+  .resize-handle { display: none; position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px; cursor: nwse-resize; color: var(--text-muted); touch-action: none; }
+  .dashboard-grid.editing .resize-handle { display: flex; align-items: center; justify-content: center; }
+  .kbd-hint { font-size: 10px; color: var(--text-muted); margin-top: 8px; flex: 0 0 auto; }
+
+  .block-row { display: flex; align-items: flex-start; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .block-row:last-child { border-bottom: none; }
+  .block-check { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex-shrink: 0; cursor: pointer; }
+  .block-text { flex: 1; }
+  .block-label { font-size: 13.5px; font-weight: 600; }
+  .block-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  /* 55e échange : retrait de la fonctionnalité Croisements — .chip-group-label/.chip-group/.chip/
+     .chip.active/.croisement-list/.croisement-row/.croisement-label/.croisement-empty sont retirées
+     (plus aucun usage, voir renderParametresTab dans pilotage-academique.js). .croisement-remove
+     est GARDÉE : réutilisée par le tableau des ajustements de cible par établissement (voir
+     renderAjustementsCard/openEtabPersonnelModal, data-remove-override/data-modal-remove-override). */
+  .croisement-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px; }
+  .croisement-remove:hover { color: var(--danger); }
+  .save-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+  .save-note { font-size: 11.5px; color: var(--text-muted); }
+  .empty-state { color: var(--text-muted); font-style: italic; font-size: 12.5px; }
+
+  @media print { .topbar, .toolbar, .flash, .skip-link, .dev-banner { display: none !important; } }
+</style>
+
+<div class="app">
+  <a href="#main" class="skip-link">Aller au contenu</a>
+  <header class="topbar">
+    <div>
+      <p class="app-name" id="appName">Pilotage FPGC</p>
+      <p class="app-sub" id="topbarSub">Chargement des données…</p>
+    </div>
+    <div class="topbar-actions">
+      <button type="button" class="tab-btn" id="btnTabTableau">Tableau de bord</button>
+      <button type="button" class="tab-btn" id="btnTabCible">Cible auto</button>
+      <button type="button" class="tab-btn" id="btnTabParametres">Paramètres</button>
+    </div>
+  </header>
+  <div id="devBanner" class="dev-banner" hidden></div>
+  <div id="flash" class="flash" hidden role="status"></div>
+  <main id="main" class="content" tabindex="-1"></main>
+  <div id="etabPersonnelModal"></div>
+  <!-- 52e échange : hôte de la modale « Filtres » (openCarteFiltersModal) — fusionne l'ancienne
+       modale « Filtrer par circonscription » (50e échange, #circonscriptionFilterModal) avec les
+       nouveaux filtres type/secteur/tutelle. Sibling de #main pour la même raison que
+       #etabPersonnelModal ci-dessus : render() reconstruit #main à chaque rendu, un hôte de modale
+       placé dedans serait détruit. -->
+  <div id="carteFiltersModal"></div>
+  <!-- 52e échange : hôte de la modale plein écran de la carte (bouton « Agrandir », voir
+       openCarteExpandModal/mountCarteLeaflet) — sibling de #main pour la même raison. Contient sa
+       propre instance Leaflet indépendante (#carteLeafletHostExpand), montée/démontée par
+       openCarteExpandModal/closeCarteExpandModal et remontée par render() tant que la modale reste
+       ouverte (state.carteExpanded). -->
+  <div id="carteExpandModal"></div>
+</div>
+<script src="pilotage-academique.js"></script>
