@@ -38,7 +38,7 @@ function fixture(opts = {}) {
   T('BD_Stages2_summary_Academie', ['count'], { summarySourceTable: 3 });
 
   const ua = (o) => JSON.stringify(o);
-  const sat = opts.mauvaiseCleSatisfaction ? 'SatisfactionUUID_' : 'Satisfaction_UUID_';
+  const sat = opts.mauvaiseCleSatisfaction ? 'Satisfaction_UUID_' : 'SatisfactionUUID_';
   return {
     _grist_Tables: tables,
     _grist_Tables_column: cols,
@@ -100,7 +100,7 @@ async function ouvrir(browser, doc, init = '') {
     const checks = await page.$$eval('.checks li', (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
     verifier(checks.some((c) => c.includes('Candidats_du_stage.Academie_du_stage — absente')), 'colonne pont manquante détectée');
     verifier(checks.some((c) => c.includes('Planning_du_stage.Academie_du_stage — type Any')), 'colonne pont de type Any détectée');
-    verifier(checks.some((c) => c.includes('Liens de satisfaction : paramètre « Satisfaction_UUID_ » conforme')), 'paramètre de lien satisfaction vérifié');
+    verifier(checks.some((c) => c.includes('Liens de satisfaction : paramètre « SatisfactionUUID_ » conforme')), 'paramètre de lien satisfaction vérifié');
     verifier(checks.some((c) => c.includes('dont 1 national')), 'compte national compté');
     verifier(await page.isEnabled('#btnAppliquer'), 'bouton Appliquer actif');
     const annexes = await page.$$eval('select[data-annexe]', (s) => s.map((x) => x.dataset.annexe));
@@ -128,7 +128,7 @@ async function ouvrir(browser, doc, init = '') {
     const etat = await page.evaluate(() => ({ res: window.__DOC._grist_ACLResources, rules: window.__DOC._grist_ACLRules, cols: window.__DOC._grist_Tables_column, params: window.__DOC.Parametres_widget, nbLots: window.__ACTIONS.length }));
     verifier(etat.nbLots === 2, `deux lots envoyés (sauvegarde puis règles) : ${etat.nbLots}`);
     const ua = etat.rules.filter((r) => r.userAttributes).map((r) => JSON.parse(r.userAttributes).name).sort();
-    verifier(JSON.stringify(ua) === '["Profil","StageSatisfaction","Stagiaire"]', `attributs utilisateur remplacés (${ua})`);
+    verifier(JSON.stringify(ua) === '["Profil","StageRecrutement","StageSatisfaction","Stagiaire"]', `attributs utilisateur remplacés (${ua})`);
     verifier(etat.res.some((r) => r.tableId === '*SPECIAL') && etat.rules.some((r) => r.id === 9), 'règle spéciale non gérée conservée');
     verifier(!etat.res.some((r) => r.tableId === 'Candidats_du_stage' && r.colIds === 'Mel'), 'ancienne règle de colonne retirée');
     const colRes = etat.res.find((r) => r.tableId === 'Candidats_du_stage' && r.colIds !== '*');
@@ -181,7 +181,7 @@ async function ouvrir(browser, doc, init = '') {
     verifier(await page.isDisabled('#btnAppliquer'), 'Appliquer désactivé si prérequis bloquants');
     const t = await page.textContent('.checks');
     verifier(t.includes("BD_Stages2.Academie_de_formation n'est pas une Référence"), 'type Texte détecté');
-    verifier(t.includes('SatisfactionUUID_'), 'mauvais paramètre de lien détecté');
+    verifier(t.includes('Satisfaction_UUID_'), 'mauvais paramètre de lien détecté');
     await page.screenshot({ path: path.join(OUT, '04-bloquant.png'), fullPage: true });
     await page.close();
   }

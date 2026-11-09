@@ -29,7 +29,9 @@ grist.ready({ requiredAccess: 'full' });
 // Noms des paramètres Link Key (le paramètre d'URL est ce nom suivi de « _ »).
 const CLES_LIEN = {
   recrutement: 'UUID',               // ?UUID_=…               → user.LinkKey.UUID
-  satisfaction: 'Satisfaction_UUID', // ?Satisfaction_UUID_=…  → user.LinkKey.Satisfaction_UUID
+  // Nom réellement produit par gestion-stage-fpgc (buildSatisfactionLink) : « SatisfactionUUID_ ».
+  // Le v17 attendait « Satisfaction_UUID », d'où une enquête impossible à charger (09/11/2026).
+  satisfaction: 'SatisfactionUUID',  // ?SatisfactionUUID_=…   → user.LinkKey.SatisfactionUUID
   stagiaire: 'CandidatUUID',         // ?CandidatUUID_=…       → user.LinkKey.CandidatUUID
 };
 
@@ -70,6 +72,9 @@ const C = {
   profil: 'user.Profil.id',
   academieStage: 'user.Profil.id and rec.Academie_du_stage == user.Profil.Academie',
   stagiaire: 'user.Stagiaire.id',
+  // Visiteur muni d'une clé de lien VALIDE (elle correspond à un stage ou à un stagiaire existant).
+  // Une clé inventée ou altérée ne suffit pas : l'attribut utilisateur correspondant reste vide.
+  visiteurValide: 'user.StageRecrutement.id or user.StageSatisfaction.id or user.Stagiaire.id',
   sansCle: `not (user.LinkKey.${CLES_LIEN.recrutement} or user.LinkKey.${CLES_LIEN.satisfaction} or user.LinkKey.${CLES_LIEN.stagiaire})`,
 };
 
@@ -81,6 +86,8 @@ const MEMO_REFUS = (table) =>
 // ---------------------------------------------------------------------------------------
 
 const USER_ATTRIBUTES = [
+  { name: 'StageRecrutement', tableId: 'BD_Stages2', charId: `LinkKey.${CLES_LIEN.recrutement}`, lookupColId: 'UUID',
+    libelle: 'Retrouve le stage à partir de la clé du lien de recrutement' },
   { name: 'Profil', tableId: TABLE_UTILISATEURS, charId: 'Email', lookupColId: 'Email',
     libelle: `Rattache le compte connecté (adresse mél) à sa ligne ${TABLE_UTILISATEURS}` },
   { name: 'Stagiaire', tableId: 'Candidats_du_stage', charId: `LinkKey.${CLES_LIEN.stagiaire}`, lookupColId: 'UUID_personnel',
@@ -249,11 +256,13 @@ const TABLES_REFERENCE = [
   },
   {
     tableId: 'Reference',
-    description: 'Référentiel académies / niveaux — lecture pour tous, modification par le national',
+    description: 'Référentiel académies / niveaux — lecture par le personnel et par les visiteurs munis d\'un lien valide',
     rules: [
       regleOwner(),
       regleNational(),
-      { label: 'Tous les autres (lecture seule, y compris visiteurs des pages publiques)', formula: '', perms: '+R-CUD' },
+      { label: 'Personnel répertorié (lecture)', formula: C.profil, perms: '+R-CUD' },
+      { label: "Visiteur muni d'un lien valide (lecture)", formula: C.visiteurValide, perms: '+R-CUD' },
+      regleRefus('Reference'),
     ],
   },
   {
@@ -268,21 +277,23 @@ const TABLES_REFERENCE = [
   },
   {
     tableId: 'Modules_de_formation',
-    description: 'Bibliothèque de modules — lecture pour tous, ajout de modules complémentaires par les académies',
+    description: 'Bibliothèque de modules — lecture par le personnel, ajout de modules complémentaires par les académies',
     rules: [
       regleOwner(),
       regleNational(),
       { label: 'Académies : ajout de modules complémentaires', formula: `${C.profil} and newRec.Type == "Complémentaire"`, perms: '+C' },
-      { label: 'Tous les autres (lecture seule)', formula: '', perms: '+R-CUD' },
+      { label: 'Personnel répertorié (lecture)', formula: C.profil, perms: '+R-CUD' },
+      regleRefus('Modules_de_formation'),
     ],
   },
   {
     tableId: 'Parametres_widget',
-    description: 'Réglages des widgets — lecture pour tous (pages publiques), modification par le personnel',
+    description: "Réglages des widgets — modification par le personnel, lecture par les visiteurs munis d'un lien valide",
     rules: [
       regleOwner(),
       { label: 'Personnel répertorié', formula: C.profil, perms: '+CRUD' },
-      { label: 'Tous les autres (lecture seule)', formula: '', perms: '+R-CUD' },
+      { label: "Visiteur muni d'un lien valide (lecture)", formula: C.visiteurValide, perms: '+R-CUD' },
+      regleRefus('Parametres_widget'),
     ],
   },
   {
@@ -356,6 +367,8 @@ const MODELES_TABLES_ANNEXES = {
 };
 
 const NOTE_CORRECTIONS = [
+  "Lien d'enquête : le widget de gestion produit « SatisfactionUUID_ », les règles du v17 attendaient « Satisfaction_UUID_ » : la page d'enquête ne pouvait rien lire. Les règles suivent désormais le nom réellement produit.",
+  "Reference, Parametres_widget, Modules_de_formation : plus lisibles avec le seul lien public. Lecture réservée au personnel et aux visiteurs dont la clé correspond à un stage ou un stagiaire existant (attribut StageRecrutement ajouté pour vérifier la clé de recrutement).",
   "Anonymat : un visiteur non connecté a pour adresse « anon@getgrist.com », jamais une adresse vide — « user.Email is None » ne le reconnaît donc pas. Les règles utilisent la présence d'une clé de lien (ou « Tous les autres »).",
   "« not user.Profil » n'est jamais vrai : un User Attribute introuvable est un enregistrement vide, pas None. Les règles testent « user.Profil.id ». Même correction pour « user.StageSatisfaction is not None », qui était toujours vrai.",
   "Les règles Grist s'appliquent aussi aux propriétaires : chaque table commence par une règle explicite « Propriétaires ».",

@@ -1484,8 +1484,12 @@ function bindConfigSatisfaction(stage) {
       if (!stage.Satisfaction_UUID) {
         const uuid = generateUUID();
         const url = buildSatisfactionLink(baseUrl, { ...stage, Satisfaction_UUID: uuid });
-        await updateRecord('BD_Stages2', stage.id, { Satisfaction_UUID: uuid, Satisfaction_URL: url });
-      } else if (!stage.Satisfaction_URL && baseUrl) {
+        // Satisfaction_URL n'est écrit que si la colonne existe (voir hasColumn) : le lien affiché
+        // dans cette carte est recalculé à chaque fois, la colonne ne sert qu'à la liste des liens.
+        const champs = { Satisfaction_UUID: uuid };
+        if (hasColumn('BD_Stages2', 'Satisfaction_URL')) champs.Satisfaction_URL = url;
+        await updateRecord('BD_Stages2', stage.id, champs);
+      } else if (!stage.Satisfaction_URL && baseUrl && hasColumn('BD_Stages2', 'Satisfaction_URL')) {
         // 41e échange, tour suivant — même filet de sécurité que côté recrutement (voir
         // bindConfigFormulaire) : complète Satisfaction_URL si un premier enregistrement a eu lieu
         // avant que l'administrateur ne renseigne baseUrlDocument/pageIdEnqueteSatisfaction dans
